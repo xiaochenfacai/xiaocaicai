@@ -589,14 +589,22 @@ def handle_all_messages(message):
                 bot.reply_to(message, "❌ 格式错误！请输入如: `设置汇率 7.3`")
             return
 
-        # 2️⃣ 👑 设置操作人 (买家老板/二级权限人均可在群里任免打工仔)
+       # 1️⃣ 设置汇率功能 (这是原来的代码)
+        if text.startswith("设置汇率"):
+            # ... (中间省略)
+            return
 
+        # 2️⃣ 设置费率功能 (请确保这里的缩进是标准的 4 个空格)
         if text.startswith("设置费率"):
-    try:
-        new_fee = float(text.replace("设置费率", "").strip()) / 100
-        update_setting(gid, 'fee_rate', new_fee)
-        bot.reply_to(message, f"✅ 费率已更新为: {new_fee*100:.0f}%")
-    except: bot.reply_to(message, "❌ 格式错误，例如：设置费率 5")
+            try:
+                new_fee = float(text.replace("设置费率", "").strip()) / 100
+                update_setting(gid, 'fee_rate', new_fee)
+                bot.reply_to(message, f"✅ 费率已更新为: {new_fee*100:.0f}%")
+            except: 
+                bot.reply_to(message, "❌ 格式错误，例如：设置费率 5")
+            return
+
+        # 3️⃣ 👑 设置操作人 ...
 
     
         if text.startswith("设置操作人"):
