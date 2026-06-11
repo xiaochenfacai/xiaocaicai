@@ -13,7 +13,7 @@ import requests
 # ==================== 1. 系统核心配置 ====================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-TOKEN = os.environ.get('TELEGRAM_TOKEN', '8880294546:AAGnUzWe3BTxYGlUe6oSb7m7b2SuPUm2_30')
+TOKEN = os.environ.get('TELEGRAM_TOKEN', '8880294546:AAGVZsxiDfSCgNiej_luaoAwyYm9wha3OOI')
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://caicai-799gg.onrender.com')
 PORT = int(os.environ.get('PORT', 5000))
 
@@ -950,7 +950,7 @@ def api_bill():
     except Exception as e:
         return jsonify({'error': True, 'msg': str(e)}), 500
 
-@flask_app.route('/' + TOKEN, methods=['POST'])
+@flask_app.route('/webhook', methods=['POST'])
 def getMessage():
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
@@ -958,8 +958,8 @@ def getMessage():
     return "!", 200
 
 if __name__ == '__main__':
-    init_db()
+    # 在启动 Flask 之前，强制设置正确的 Webhook 地址
     bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
-    print(f"🚀 三级权限分布式看板服务重载运行...")
-    flask_app.run(host='0.0.0.0', port=PORT)
+    bot.set_webhook(url="https://caicai-799gg.onrender.com/webhook")
+    
+    app.run(host='0.0.0.0', port=PORT)
