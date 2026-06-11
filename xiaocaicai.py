@@ -4,27 +4,22 @@ import json
 import sqlite3
 import logging
 import random
-from datetime import datetime, timedelta
 import pytz
-from flask import Flask, request, jsonify
-import telebot
 import requests
+import telebot
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
 
-# ==================== 1. 系统核心配置 ====================
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
-TOKEN = os.environ.get('TELEGRAM_TOKEN', '8880294546:AAGVZsxiDfSCgNiej_luaoAwyYm9wha3OOI')
+# 1. 系统核心配置
+logging.basicConfig(level=logging.INFO)
+TOKEN = os.environ.get('TELEGRAM_TOKEN', '8880294546:AAH7bmpRAT_ArIUVdSqtKMIkxjmrOCzraQw')
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://caicai-799gg.onrender.com')
 PORT = int(os.environ.get('PORT', 5000))
-
-# 顶级系统创始人UID（拥有最高买家资格，且负责审核续费凭证）
-FOUNDER_USERS = [8807178282]  
+FOUNDER_USERS = [8807178282]
 TRON_ADDRESS = "TVnjLwDrGjYVRTa1ukfoE2mFTmCxtrjoCw"
 
-bot = telebot.TeleBot(TOKEN, parse_mode=None)
+bot = telebot.TeleBot(TOKEN)
 flask_app = Flask(__name__)
-
-# 内存中暂存私聊操作状态： { user_id: "WAITING_ADD_VIP" 或 "WAITING_DEL_VIP" }
 USER_STATE = {}
 
 # ==================== 2. 🌐 强力波场链上数据抓取引擎 ====================
@@ -84,25 +79,19 @@ def fetch_blockchain_usdt_info(address):
 def get_db_connection():
     conn = sqlite3.connect('bot_data.db', timeout=60.0)
     conn.execute('PRAGMA journal_mode=WAL;')
-    conn.execute('PRAGMA synchronous=NORMAL;')
     return conn
 
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS settings
-                 (group_id INTEGER PRIMARY KEY, operators TEXT DEFAULT '[]', exchange_rate REAL DEFAULT 7.2,
-                  fee_rate REAL DEFAULT 0, is_active INTEGER DEFAULT 1, language TEXT DEFAULT 'chinese',
-                  timezone TEXT DEFAULT 'Asia/Shanghai', show_usdt INTEGER DEFAULT 1, expire_time TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS bills
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER, user_id INTEGER, username TEXT,
-                  remark TEXT, amount REAL, usdt_amount REAL, exchange_rate REAL, bill_type TEXT,
-                  timestamp TEXT, date_str TEXT, is_settled INTEGER DEFAULT 0)''')
-    # level 字段：1 代表最高级买家(大老板)，2 代表权限人(二级VIP)
-    c.execute('''CREATE TABLE IF NOT EXISTS vip_users
-                 (user_id INTEGER PRIMARY KEY, username TEXT, expire_time TEXT, level INTEGER DEFAULT 2)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS settings (group_id INTEGER PRIMARY KEY, operators TEXT DEFAULT '[]', exchange_rate REAL DEFAULT 7.2, fee_rate REAL DEFAULT 0, is_active INTEGER DEFAULT 1, language TEXT DEFAULT 'chinese', timezone TEXT DEFAULT 'Asia/Shanghai', show_usdt INTEGER DEFAULT 1, expire_time TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bills (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER, user_id INTEGER, username TEXT, remark TEXT, amount REAL, usdt_amount REAL, exchange_rate REAL, bill_type TEXT, timestamp TEXT, date_str TEXT, is_settled INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS vip_users (user_id INTEGER PRIMARY KEY, username TEXT, expire_time TEXT, level INTEGER DEFAULT 2)''')
     conn.commit()
     conn.close()
+
+# 初始化数据库
+init_db()
 
 def get_current_time(timezone_str='Asia/Shanghai'):
     try:
@@ -384,9 +373,12 @@ def handle_my_chat_member(message: telebot.types.ChatMemberUpdated):
             logging.error(f"发送入群欢迎语失败: {e}")
 
 # ==================== 下面接你原本的 handle_all_messages ====================
+# 3. 唯一的入口处理函数 (修复了重复定义的问题)
 @bot.message_handler(func=lambda m: True)
 def handle_all_messages(message):
-    # ...
+    # 这里放置你原本的全部指令逻辑
+    # 确保没有其他 @bot.message_handler(func=lambda m: True)
+    pass
     
     # 1. 查看到期时间
     if call.data == "btn_check_expire":
@@ -950,16 +942,18 @@ def api_bill():
     except Exception as e:
         return jsonify({'error': True, 'msg': str(e)}), 500
 
+# 4. Webhook 与 Flask 启动
 @flask_app.route('/webhook', methods=['POST'])
-def getMessage():
+def webhook():
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
     return "!", 200
 
 if __name__ == '__main__':
-    # 在启动 Flask 之前，强制设置正确的 Webhook 地址
+    # 强制清理旧 Webhook，防止重复路径冲突
     bot.remove_webhook()
-    bot.set_webhook(url="https://caicai-799gg.onrender.com/webhook")
+    bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
     
+    # 启动 Flask
     flask_app.run(host='0.0.0.0', port=PORT)
