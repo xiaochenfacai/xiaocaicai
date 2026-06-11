@@ -13,12 +13,12 @@ import requests
 # ==================== 1. 系统核心配置 ====================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-TOKEN = os.environ.get('TELEGRAM_TOKEN', '8880294546:AAGgqXTQwrTVmRPJX6s4YUPwyEvgXU1F_JY')
-WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://caicai-777gg.onrender.com')
+TOKEN = os.environ.get('TELEGRAM_TOKEN', '8880294546:AAGnUzWe3BTxYGlUe6oSb7m7b2SuPUm2_30')
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://caicai-799gg.onrender.com')
 PORT = int(os.environ.get('PORT', 5000))
 
 # 顶级系统创始人UID（拥有最高买家资格，且负责审核续费凭证）
-FOUNDER_USERS = [8179896441]  
+FOUNDER_USERS = [8807178282]  
 TRON_ADDRESS = "TVnjLwDrGjYVRTa1ukfoE2mFTmCxtrjoCw"
 
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
@@ -274,30 +274,42 @@ def get_class_bills_by_date(group_id, target_date):
 
 def send_text_bill_report(chat_id, gid, target_date):
     rate = get_setting(gid, 'exchange_rate') or 7.2
+    fee_rate = get_setting(gid, 'fee_rate') or 0.0 # 假设费率已在数据库配置中
     income, expense, total_income, total_expense = get_class_bills_by_date(gid, target_date)
+    
     total_rmb = total_income[0] if (total_income and total_income[0]) else 0
     total_usdt = total_income[1] if (total_income and total_income[1]) else 0
     expense_usdt = total_expense[0] if (total_expense and total_expense[0]) else 0
     remaining_usdt = total_usdt - expense_usdt
+    
+    # 统计备注分类
+    summary_dict = {}
+    for r in income:
+        rem = r[0] if r[0] else "无备注"
+        if rem not in summary_dict: summary_dict[rem] = {"rmb": 0, "usdt": 0}
+        summary_dict[rem]["rmb"] += r[2]
+        summary_dict[rem]["usdt"] += r[3]
 
-    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n📥 <b>入款 (最后5笔):</b>\n"
-    if income:
-        for row in income[-5:]:
-            remark, username, amount, usdt_amount, ex_rate, timestamp = row
-            time_str = timestamp[11:16] if timestamp else "00:00"
-            report += f"  {time_str} {amount:.0f}/{ex_rate:.2f}= {usdt_amount:.1f}U" + (f" ({remark}) [由 {username}]\n" if remark else f" [由 {username}]\n")
-    else:
-        report += "  暂无入款数据\n"
-    if expense:
-        report += "\n📤 <b>下发 (最后5笔):</b>\n"
-        for row in expense[-5:]:
-            remark, username, usdt_amount, ex_rate, timestamp = row
-            time_str = timestamp[11:16] if timestamp else "00:00"
-            report += f"  {time_str} 下发 {usdt_amount:.1f}U" + (f" ({remark}) [由 {username}]\n" if remark else f" [由 {username}]\n")
+    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n📥 <b>入款 (仅显示最后5笔):</b>\n"
+    for row in income[-5:]:
+        # 格式: 用户名 时间(内容) 金额/汇率=U
+        report += f"{row[1]} {row[5][11:16]} {row[2]:.0f} / {row[4]:.2f} = {row[3]:.2f}U\n"
+        
+    report += "\n📥 <b>入款备注分类:</b>\n"
+    for k, v in summary_dict.items():
+        report += f"{k} 👉 {v['rmb']:.0f} | {v['usdt']:.2f}U\n"
 
-    report += f"\n💰 <b>汇率:</b> {rate:.2f}\n📊 <b>总入款:</b> {total_rmb:.0f} | {total_usdt:.1f}U\n📊 <b>已下发:</b> {expense_usdt:.1f}U\n📊 <b>未下发:</b> {remaining_usdt:.1f}U\n\n<code>[核算编号: {random.randint(1000,9999)}]</code>"
+    report += f"\n📤 <b>下发 ({len(expense)}笔):</b>\n"
+    
+    report += (f"\n💰 <b>总入款:</b> {total_rmb:.0f}\n"
+               f"📉 <b>费率:</b> {fee_rate*100:.0f}%\n"
+               f"💱 <b>汇率:</b> {rate:.2f}\n\n"
+               f"应下发: {total_rmb:.0f} | {total_usdt:.2f} U\n"
+               f"未下发: {total_rmb:.0f} | {remaining_usdt:.2f} U\n\n"
+               f"<code>[核算编号: {random.randint(1000,9999)}]</code>")
+
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("📊 查看完整网页账单", url=f"{WEBHOOK_URL}?group_id={gid}"))
+    markup.add(telebot.types.InlineKeyboardButton("📊 查看完整网页账单", url=f"{WEBHOOK_URL}/?group_id={gid}"))
     bot.send_message(chat_id, report, parse_mode="HTML", reply_markup=markup)
 
 # ==================== 5. 💬 Telegram 核心控制指令扩展网关 ====================
@@ -332,7 +344,7 @@ def cmd_start(message):
         bot.send_message(gid, welcome, parse_mode="HTML", reply_markup=markup)
     else:
         welcome = (
-            "🤖 <b>小机器人智能分布式记账系统已激活</b>\n\n"
+            "🤖 <b>小跟班智能分布式记账系统已激活</b>\n\n"
             "👉 <b>群内核心记账命令：</b>\n"
             "• 发送 <code>上课</code> / <code>下课</code> 开启或封存账单\n"
             "• 发送 <code>+1000</code> 或 <code>+1000/7.3</code> 记入款\n"
@@ -352,6 +364,29 @@ def handle_private_buttons(call):
     uid = call.from_user.id
     has_auth, lvl_desc, expire_time, lvl = get_user_permission_level(uid)
     chat_id = call.message.chat.id
+
+    # 监听机器人加入群组/被管理员操作的事件
+@bot.my_chat_member_handler()
+def handle_my_chat_member(message: telebot.types.ChatMemberUpdated):
+    # 如果机器人加入新群组或被提升为管理员，发送欢迎语
+    new_status = message.new_chat_member.status
+    if new_status in ['member', 'administrator']:
+        chat_id = message.chat.id
+        welcome_text = (
+            "<b>感谢您把我拉进贵群！</b>\n\n"
+            "我是小财财机器人🤖\n"
+            "接下来请发送 <code>上课</code> 唤醒我，"
+            "并设置费率（如：<code>设置费率 5</code>），然后即可开始记账。"
+        )
+        try:
+            bot.send_message(chat_id, welcome_text, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"发送入群欢迎语失败: {e}")
+
+# ==================== 下面接你原本的 handle_all_messages ====================
+@bot.message_handler(func=lambda m: True)
+def handle_all_messages(message):
+    # ...
     
     # 1. 查看到期时间
     if call.data == "btn_check_expire":
@@ -363,7 +398,7 @@ def handle_private_buttons(call):
     # 2. 详细说明书
     elif call.data == "btn_manual_guide":
         manual = (
-            "📖 <b>【小机器人】全功能业务操作指南</b>\n\n"
+            "📖 <b>【小跟班记账】全功能业务操作指南</b>\n\n"
             "👑 <b>权限架构：</b>\n"
             "1. <b>最高级买家</b>：控制全局，在私聊有 6 键菜单，可指派二级权限人。\n"
             "2. <b>权限人(二级VIP)</b>：协助买家管事，在私聊无法配置老板，但可以被拉进各个群指派群操作人。\n"
@@ -555,6 +590,15 @@ def handle_all_messages(message):
             return
 
         # 2️⃣ 👑 设置操作人 (买家老板/二级权限人均可在群里任免打工仔)
+
+        if text.startswith("设置费率"):
+    try:
+        new_fee = float(text.replace("设置费率", "").strip()) / 100
+        update_setting(gid, 'fee_rate', new_fee)
+        bot.reply_to(message, f"✅ 费率已更新为: {new_fee*100:.0f}%")
+    except: bot.reply_to(message, "❌ 格式错误，例如：设置费率 5")
+
+    
         if text.startswith("设置操作人"):
             has_auth, _, _, _ = get_user_permission_level(uid)
             if uid not in FOUNDER_USERS and not has_auth:
