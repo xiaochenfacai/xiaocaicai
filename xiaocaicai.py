@@ -287,6 +287,8 @@ def update_setting(group_id, key, value):
     if key not in SETTING_KEYS:
         return
     try:
+        # 群组首次操作时 settings 表可能还没有记录，UPDATE 会静默失败
+        get_setting(group_id, "group_id")
         conn = get_db()
         c = conn.cursor()
         c.execute(f"UPDATE settings SET {key} = ? WHERE group_id = ?", (value, group_id))
