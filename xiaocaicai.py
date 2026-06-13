@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "8880294546:AAE5P9nvPC_Mk0WdCQDhV3_ZxREbJflUyow")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://caicai-799gg.onrender.com").rstrip("/")
 PORT = int(os.environ.get("PORT", "5000"))
 FOUNDER_USERS = [8807178282]
