@@ -408,7 +408,7 @@ def send_text_bill_report(chat_id, group_id, target_date):
         summary[rem]["rmb"] += row[2]
         summary[rem]["usdt"] += row[3]
 
-    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n📥 <b>入款 (仅显示最后5笔):</b>\n"
+    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n📥 <b>入款 ({len(expense)}笔):</b>\n"
     for row in income[-5:]:
         report += f"{row[1]} {row[5][11:16]} {row[2]:.0f} / {row[4]:.2f} = {row[3]:.2f}U\n"
 
