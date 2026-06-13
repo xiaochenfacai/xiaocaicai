@@ -442,22 +442,43 @@ def get_bill_dates(group_id):
     return [{"date": r[0], "income": r[1], "expense": r[2]} for r in rows]
 
 
+def _html_esc(text):
+    return str(text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _tag_remark(remark):
+    rem = _html_esc(remark).strip()
+    if not rem:
+        return ""
+    return f"<i>{rem}</i>"
+
+
+def _tag_operator(name):
+    return f'<a href="https://t.me/">{_html_esc(name)}</a>'
+
+
+def _tag_rmb(amount):
+    return f"<b>{amount:.0f}</b>"
+
+
 def _format_income_line(remark, operator, amount, usdt, rate, timestamp):
     time_s = timestamp[11:16]
-    body = f"{amount:.0f}/{rate:.2f}={usdt:.2f}U"
-    rem = (remark or "").strip()
+    body = f"{_tag_rmb(amount)}/{rate:.2f}={usdt:.2f}U"
+    op = _tag_operator(operator)
+    rem = _tag_remark(remark)
     if rem:
-        return f"{rem} {time_s} {body} {operator}"
-    return f"{time_s} {body} {operator}"
+        return f"{rem} {time_s} {body} {op}"
+    return f"{time_s} {body} {op}"
 
 
 def _format_expense_line(remark, operator, usdt, timestamp):
     time_s = timestamp[11:16]
     body = f"下发 {usdt:.2f}U"
-    rem = (remark or "").strip()
+    op = _tag_operator(operator)
+    rem = _tag_remark(remark)
     if rem:
-        return f"{rem} {time_s} {body} {operator}"
-    return f"{time_s} {body} {operator}"
+        return f"{rem} {time_s} {body} {op}"
+    return f"{time_s} {body} {op}"
 
 
 def build_bill_report_text(group_id, target_date, show_all_categories=False):
@@ -481,7 +502,7 @@ def build_bill_report_text(group_id, target_date, show_all_categories=False):
     report += f"📥 <b>入款（{len(income)}笔）</b>\n"
     if income:
         for row in income[-5:]:
-            report += _format_income_line(row[0], row[1], row[2], row[3], row[4], row[5]) + "\n"
+            report += f"<blockquote>{_format_income_line(row[0], row[1], row[2], row[3], row[4], row[5])}</blockquote>\n"
     else:
         report += "  暂无入款\n"
 
@@ -490,23 +511,24 @@ def build_bill_report_text(group_id, target_date, show_all_categories=False):
     visible_categories = category_items if show_all_categories else category_items[:3]
     if visible_categories:
         for key, val in visible_categories:
-            report += f"{key} 👉 {val['rmb']:.0f} | {val['usdt']:.2f}U\n"
+            key_label = _tag_remark(key) if key != "无备注" else "无备注"
+            report += f"{key_label} 👉 {_tag_rmb(val['rmb'])} | {val['usdt']:.2f}U\n"
     else:
         report += "  暂无分类\n"
 
     report += f"\n📤 <b>下发（{len(expense)}笔）</b>\n"
     if expense:
         for row in expense[-5:]:
-            report += _format_expense_line(row[0], row[1], row[2], row[4]) + "\n"
+            report += f"<blockquote>{_format_expense_line(row[0], row[1], row[2], row[4])}</blockquote>\n"
     else:
         report += "  暂无下发\n"
 
     report += (
-        f"\n💰 <b>总入款:</b> {total_rmb:.0f}\n"
+        f"\n💰 <b>总入款:</b> {_tag_rmb(total_rmb)}\n"
         f"📉 <b>费率:</b> {fee_rate * 100:.0f}%\n"
         f"💱 <b>汇率:</b> {rate:.2f}\n\n"
-        f"应下发: {total_rmb:.0f} | {total_usdt:.2f} U\n"
-        f"未下发: {total_rmb:.0f} | {remaining_usdt:.2f} U\n\n"
+        f"应下发: {_tag_rmb(total_rmb)} | {total_usdt:.2f} U\n"
+        f"未下发: {_tag_rmb(total_rmb)} | {remaining_usdt:.2f} U\n\n"
         f"<code>[核算编号: {random.randint(1000, 9999)}]</code>"
     )
 
@@ -971,13 +993,16 @@ def handle_all_messages(message):
         if not rows:
             bot.reply_to(message, f"🔍 今日无备注【{remark}】的进单。")
             return
-        report = f"📋 <b>【{remark}】进单明细</b>\n\n"
+        report = f"📋 <b>【{_tag_remark(remark)}】进单明细</b>\n\n"
         total_r, total_u = 0.0, 0.0
         for ts, amt, uamt, uname in rows:
-            report += f"  🔹 {ts[11:16]} | {amt:.0f} RMB → {uamt:.1f} U ({uname})\n"
+            report += (
+                f"<blockquote>{ts[11:16]} | {_tag_rmb(amt)} RMB → {uamt:.1f} U "
+                f"({_tag_operator(uname)})</blockquote>\n"
+            )
             total_r += amt
             total_u += uamt
-        report += f"\n📈 合计：{total_r:.0f} RMB / {total_u:.1f} USDT"
+        report += f"\n📈 合计：{_tag_rmb(total_r)} RMB / {total_u:.1f} USDT"
         bot.reply_to(message, report, parse_mode="HTML")
         return
 
@@ -1033,27 +1058,32 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <title>分布式全功能网页账单</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,sans-serif}
-body{background:#f4f6f9;color:#333;padding:12px;line-height:1.4}
-.container{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,.05)}
-.header{text-align:center;margin-bottom:20px;border-bottom:2px solid #edf2f7;padding-bottom:15px}
-.date-picker{margin:10px 0;background:#f8fafc;padding:8px;border-radius:6px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;border:1px dashed #cbd5e1}
+body{background:#f4f6f9;color:#475569;padding:12px;line-height:1.35;font-size:12px}
+.container{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;padding:14px;box-shadow:0 4px 12px rgba(0,0,0,.05);font-size:12px}
+.header{text-align:center;margin-bottom:16px;border-bottom:2px solid #edf2f7;padding-bottom:12px}
+.header h2{font-size:16px;color:#334155}
+.date-picker{margin:10px 0;background:#f8fafc;padding:8px;border-radius:6px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;border:1px dashed #cbd5e1;font-size:11px}
 .date-tags{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:6px}
-.date-tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;text-decoration:none;color:#334155}
+.date-tag{font-size:11px;padding:3px 7px;border-radius:999px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;text-decoration:none;color:#334155}
 .date-tag.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
-.nav-btn{padding:6px 12px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:13px;color:#334155}
+.nav-btn{padding:5px 10px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:11px;color:#334155}
 .nav-btn:disabled{opacity:.45;cursor:not-allowed}
-.summary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:25px;border-top:2px dashed #cbd5e1;padding-top:20px}
-.card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}
-.card .title{font-size:12px;color:#64748b}
-.card .value{font-size:18px;font-weight:bold;margin-top:2px}
-h3{font-size:15px;margin:25px 0 8px;padding-left:6px;border-left:4px solid #3b82f6}
+.summary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:20px;border-top:2px dashed #cbd5e1;padding-top:16px}
+.card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center}
+.card .title{font-size:11px;color:#64748b}
+.card .value{font-size:15px;font-weight:bold;margin-top:2px}
+h3{font-size:13px;margin:20px 0 6px;padding-left:6px;border-left:4px solid #3b82f6;color:#334155}
 .exp-title{border-left-color:#ef4444}.cate-title{border-left-color:#10b981}
-table{width:100%;border-collapse:collapse;margin-top:5px;font-size:13px}
-th,td{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left}
-th{background:#f1f5f9;color:#475569}
-.badge{display:inline-block;padding:2px 6px;font-size:11px;border-radius:4px;font-weight:bold;background:#e2e8f0}
+table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
+th,td{padding:7px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
+th{background:#f1f5f9;color:#64748b;font-size:11px}
+.badge{display:inline-block;padding:2px 6px;font-size:10px;border-radius:4px;font-weight:bold;background:#e2e8f0}
 .bg-inc{background:#dcfce7;color:#15803d}.bg-exp{background:#fee2e2;color:#b91c1c}
-.hint{font-size:12px;color:#64748b;margin-top:6px}
+.hint{font-size:11px;color:#64748b;margin-top:4px}
+.c-remark{color:#ca8a04;font-weight:600}
+.c-op{color:#2563eb;font-weight:500}
+.c-rmb{color:#0f172a;font-weight:700}
+.c-u{color:#64748b}
 </style>
 </head>
 <body>
@@ -1145,13 +1175,13 @@ return '<a class="date-tag'+active+'" href="?group_id='+groupId+'&date='+x.date+
 +x.date+' ('+x.income+'/'+x.expense+')</a>';
 }).join('');
 document.getElementById('cate-list').innerHTML=(data.category_summary||[]).length
-?data.category_summary.map(c=>'<tr><td><span class="badge bg-inc">'+c.remark+'</span></td><td>'+c.total_rmb+'</td><td>'+c.total_usdt+' U</td><td>'+c.count+'</td></tr>').join('')
+?data.category_summary.map(c=>'<tr><td><span class="badge bg-inc c-remark">'+c.remark+'</span></td><td><span class="c-rmb">'+c.total_rmb+'</span></td><td class="c-u">'+c.total_usdt+' U</td><td>'+c.count+'</td></tr>').join('')
 :'<tr><td colspan="4" style="text-align:center;color:#94a3b8">暂无</td></tr>';
 document.getElementById('income-list').innerHTML=(data.income_bills||[]).length
-?data.income_bills.map(b=>'<tr><td>'+b.date+'</td><td>'+b.time+'</td><td>'+b.remark+'</td><td>+'+b.amount+'</td><td>'+b.usdt+' U</td><td>'+b.username+'</td></tr>').join('')
+?data.income_bills.map(b=>'<tr><td>'+b.date+'</td><td>'+b.time+'</td><td><span class="c-remark">'+b.remark+'</span></td><td><span class="c-rmb">+'+b.amount+'</span></td><td class="c-u">'+b.usdt+' U</td><td><span class="c-op">'+b.username+'</span></td></tr>').join('')
 :'<tr><td colspan="6" style="text-align:center;color:#94a3b8">暂无入款</td></tr>';
 document.getElementById('expense-list').innerHTML=(data.expense_bills||[]).length
-?data.expense_bills.map(e=>'<tr><td>'+e.date+'</td><td>'+e.time+'</td><td>'+e.remark+'</td><td>-'+e.usdt+' U</td><td>'+e.username+'</td></tr>').join('')
+?data.expense_bills.map(e=>'<tr><td>'+e.date+'</td><td>'+e.time+'</td><td><span class="c-remark">'+e.remark+'</span></td><td class="c-u">-'+e.usdt+' U</td><td><span class="c-op">'+e.username+'</span></td></tr>').join('')
 :'<tr><td colspan="5" style="text-align:center;color:#94a3b8">暂无下发</td></tr>';
 }
 load();
