@@ -375,13 +375,13 @@ def get_class_bills_by_date(group_id, target_date):
     c = conn.cursor()
     if target_date == "all":
         c.execute(
-            "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp, date_str "
+            "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp, date_str, user_id "
             "FROM bills WHERE group_id = ? AND bill_type = 'income' ORDER BY id ASC",
             (group_id,),
         )
         income = c.fetchall()
         c.execute(
-            "SELECT remark, username, usdt_amount, exchange_rate, timestamp, date_str "
+            "SELECT remark, username, usdt_amount, exchange_rate, timestamp, date_str, user_id "
             "FROM bills WHERE group_id = ? AND bill_type = 'expense' ORDER BY id ASC",
             (group_id,),
         )
@@ -400,13 +400,13 @@ def get_class_bills_by_date(group_id, target_date):
         total_expense = c.fetchone()
     else:
         c.execute(
-            "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp, date_str "
+            "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp, date_str, user_id "
             "FROM bills WHERE group_id = ? AND date_str = ? AND bill_type = 'income' ORDER BY id ASC",
             (group_id, target_date),
         )
         income = c.fetchall()
         c.execute(
-            "SELECT remark, username, usdt_amount, exchange_rate, timestamp, date_str "
+            "SELECT remark, username, usdt_amount, exchange_rate, timestamp, date_str, user_id "
             "FROM bills WHERE group_id = ? AND date_str = ? AND bill_type = 'expense' ORDER BY id ASC",
             (group_id, target_date),
         )
@@ -450,35 +450,38 @@ def _tag_remark(remark):
     rem = _html_esc(remark).strip()
     if not rem:
         return ""
-    return f"<i>{rem}</i>"
+    return f'<span style="color:#FBBC04">{rem}</span> '
 
 
-def _tag_operator(name):
-    return f'<a href="https://t.me/">{_html_esc(name)}</a>'
+def _tag_operator(name, user_id=None):
+    safe = _html_esc(name)
+    if user_id:
+        return f'<a href="tg://user?id={int(user_id)}">{safe}</a>'
+    return f'<a href="https://t.me/">{safe}</a>'
 
 
 def _tag_rmb(amount):
     return f"<b>{amount:.0f}</b>"
 
 
-def _format_income_line(remark, operator, amount, usdt, rate, timestamp):
+def _format_income_line(remark, operator, amount, usdt, rate, timestamp, user_id=None):
     time_s = timestamp[11:16]
-    body = f"{_tag_rmb(amount)}/{rate:.2f}={usdt:.2f}U"
-    op = _tag_operator(operator)
+    core = f"{time_s} {amount:.0f}/{rate:.2f}={usdt:.2f}U"
+    op = _tag_operator(operator, user_id)
     rem = _tag_remark(remark)
     if rem:
-        return f"{rem} {time_s} {body} {op}"
-    return f"{time_s} {body} {op}"
+        return f"{rem}{core} {op}"
+    return f"{core} {op}"
 
 
-def _format_expense_line(remark, operator, usdt, timestamp):
+def _format_expense_line(remark, operator, usdt, timestamp, user_id=None):
     time_s = timestamp[11:16]
-    body = f"下发 {usdt:.2f}U"
-    op = _tag_operator(operator)
+    core = f"{time_s} 下发{usdt:.2f}U"
+    op = _tag_operator(operator, user_id)
     rem = _tag_remark(remark)
     if rem:
-        return f"{rem} {time_s} {body} {op}"
-    return f"{time_s} {body} {op}"
+        return f"{rem}{core} {op}"
+    return f"{core} {op}"
 
 
 def build_bill_report_text(group_id, target_date, show_all_categories=False):
@@ -498,30 +501,35 @@ def build_bill_report_text(group_id, target_date, show_all_categories=False):
         summary[rem]["rmb"] += row[2]
         summary[rem]["usdt"] += row[3]
 
-    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n"
+    report = f"📊 <b>账单汇总 ({target_date})</b>\n"
     report += f"📥 <b>入款（{len(income)}笔）</b>\n"
     if income:
         for row in income[-5:]:
-            report += f"<blockquote>{_format_income_line(row[0], row[1], row[2], row[3], row[4], row[5])}</blockquote>\n"
+            uid = row[7] if len(row) > 7 else None
+            report += _format_income_line(row[0], row[1], row[2], row[3], row[4], row[5], uid) + "\n"
     else:
-        report += "  暂无入款\n"
+        report += "暂无入款\n"
 
     report += "\n📥 <b>入款备注分类</b>\n"
     category_items = list(summary.items())
     visible_categories = category_items if show_all_categories else category_items[:3]
     if visible_categories:
         for key, val in visible_categories:
-            key_label = _tag_remark(key) if key != "无备注" else "无备注"
-            report += f"{key_label} 👉 {_tag_rmb(val['rmb'])} | {val['usdt']:.2f}U\n"
+            if key != "无备注":
+                key_label = _tag_remark(key).strip()
+            else:
+                key_label = "无备注"
+            report += f"{key_label} 👉 {_tag_rmb(val['rmb'])}/{val['usdt']:.2f}U\n"
     else:
-        report += "  暂无分类\n"
+        report += "暂无分类\n"
 
     report += f"\n📤 <b>下发（{len(expense)}笔）</b>\n"
     if expense:
         for row in expense[-5:]:
-            report += f"<blockquote>{_format_expense_line(row[0], row[1], row[2], row[4])}</blockquote>\n"
+            uid = row[6] if len(row) > 6 else None
+            report += _format_expense_line(row[0], row[1], row[2], row[4], uid) + "\n"
     else:
-        report += "  暂无下发\n"
+        report += "暂无下发\n"
 
     report += (
         f"\n💰 <b>总入款:</b> {_tag_rmb(total_rmb)}\n"
@@ -993,16 +1001,13 @@ def handle_all_messages(message):
         if not rows:
             bot.reply_to(message, f"🔍 今日无备注【{remark}】的进单。")
             return
-        report = f"📋 <b>【{_tag_remark(remark)}】进单明细</b>\n\n"
+        report = f"📋 <b>{_tag_remark(remark).strip()}进单明细</b>\n"
         total_r, total_u = 0.0, 0.0
         for ts, amt, uamt, uname in rows:
-            report += (
-                f"<blockquote>{ts[11:16]} | {_tag_rmb(amt)} RMB → {uamt:.1f} U "
-                f"({_tag_operator(uname)})</blockquote>\n"
-            )
+            report += f"{ts[11:16]} {_tag_rmb(amt)} RMB→{uamt:.1f}U {_tag_operator(uname)}\n"
             total_r += amt
             total_u += uamt
-        report += f"\n📈 合计：{_tag_rmb(total_r)} RMB / {total_u:.1f} USDT"
+        report += f"合计 {_tag_rmb(total_r)} RMB / {total_u:.1f} USDT"
         bot.reply_to(message, report, parse_mode="HTML")
         return
 
