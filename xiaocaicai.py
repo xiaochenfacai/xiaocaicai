@@ -520,14 +520,16 @@ def build_bill_report_text(group_id, target_date, show_all_categories=False):
     category_items = list(summary.items())
     visible_categories = category_items if show_all_categories else category_items[:3]
     if visible_categories:
+        cate_lines = []
         for key, val in visible_categories:
             if key != "无备注":
                 key_label = _tag_remark(key).strip()
             else:
                 key_label = "无备注"
-            report += f"{key_label} 👉 {_tag_rmb(val['rmb'])}/{val['usdt']:.2f}U\n"
+            cate_lines.append(f"{key_label} 👉 {_tag_rmb(val['rmb'])}/{val['usdt']:.2f}U")
+        report += f"<blockquote>{chr(10).join(cate_lines)}</blockquote>\n"
     else:
-        report += "暂无分类\n"
+        report += "<blockquote>暂无分类</blockquote>\n"
 
     report += f"\n📤 <b>下发（{len(expense)}笔）</b>\n"
     if expense:
