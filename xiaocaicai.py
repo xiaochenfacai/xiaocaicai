@@ -9,6 +9,7 @@ import os
 import random
 import re
 import sqlite3
+import io
 from datetime import datetime, timedelta
 
 import pytz
@@ -343,6 +344,60 @@ def can_manage_group_operators(user_id):
     return has_auth and lvl in (1, 2)
 
 
+def can_customize_bot(user_id):
+    """最高级买家 / 创始人可修改本机器人对外名字与头像。"""
+    if user_id in FOUNDER_USERS:
+        return True
+    has_auth, _, _, lvl = get_user_permission_level(user_id)
+    return has_auth and lvl == 1
+
+
+def apply_bot_display_name(name):
+    clean = (name or "").strip()[:64]
+    if not clean:
+        raise ValueError("名字不能为空")
+    ok = bot.set_my_name(name=clean)
+    if ok is False:
+        raise RuntimeError("Telegram 拒绝修改名字")
+    return clean
+
+
+def prepare_avatar_image(raw_bytes, size=640):
+    """把任意图片自动裁成正方形并缩放到头像尺寸。"""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(raw_bytes)) as img:
+        img = img.convert("RGBA")
+        w, h = img.size
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        img = img.crop((left, top, left + side, top + side))
+        img = img.resize((size, size), Image.Resampling.LANCZOS)
+
+        canvas = Image.new("RGB", (size, size), (255, 255, 255))
+        canvas.paste(img, mask=img.split()[3])
+        out = io.BytesIO()
+        canvas.save(out, format="JPEG", quality=92, optimize=True)
+        out.seek(0)
+        return out
+
+
+def apply_bot_profile_photo(file_id):
+    file_info = bot.get_file(file_id)
+    data = bot.download_file(file_info.file_path)
+    raw = data if isinstance(data, bytes) else data.read()
+    stream = prepare_avatar_image(raw)
+    stream.name = "avatar.jpg"
+    profile_photo = telebot.types.InputProfilePhotoStatic(
+        telebot.types.InputFile(stream, file_name="avatar.jpg")
+    )
+    ok = bot.set_my_profile_photo(photo=profile_photo)
+    if ok is False:
+        raise RuntimeError("Telegram 拒绝修改头像")
+    return True
+
+
 def extract_mention(text, entities):
     if not entities:
         return ""
@@ -599,6 +654,10 @@ def cmd_start(message):
                 telebot.types.InlineKeyboardButton("🔑 设置权限人", callback_data="btn_grant_vip2"),
                 telebot.types.InlineKeyboardButton("❌ 取掉权限人", callback_data="btn_revoke_vip2"),
             )
+            markup.add(
+                telebot.types.InlineKeyboardButton("✏️ 改机器人名字", callback_data="btn_set_bot_name"),
+                telebot.types.InlineKeyboardButton("🖼 改机器人头像", callback_data="btn_set_bot_photo"),
+            )
         bot.send_message(
             message.chat.id,
             f"🤖 <b>您好！欢迎使用{BOT_BRAND}分布式管理中心</b>\n\n"
@@ -652,7 +711,7 @@ def handle_private_buttons(call):
             f"📖 <b>【{BOT_BRAND}】全功能业务操作指南</b>\n\n"
             f"🤖 欢迎使用 <b>{BOT_NAME}</b> 机器人，以下为常用指令：\n\n"
             "👑 <b>权限架构：</b>\n"
-            "1. <b>最高级买家</b>：私聊 6 键菜单，可指派二级权限人。\n"
+            "1. <b>最高级买家</b>：私聊菜单，可改机器人名字/头像，可指派二级权限人。\n"
             "2. <b>权限人(VIP2)</b>：可进群指派群操作人。\n"
             "3. <b>操作人</b>：群内专职记账。\n\n"
             "👥 <b>群内指令集：</b>\n"
@@ -661,7 +720,33 @@ def handle_private_buttons(call):
             "• <code>设置汇率 7.4</code>\n"
             "• <code>+5000/7.3 飞机备注</code>\n"
             "• <code>下发 800</code>\n"
-            "• <code>+0</code>",
+            "• <code>+0</code>\n\n"
+            "🎨 <b>买家专属（私聊菜单）：</b>\n"
+            "• <b>改机器人名字</b> / <b>改机器人头像</b>（仅最高级买家）",
+            parse_mode="HTML",
+        )
+
+    elif call.data == "btn_set_bot_name":
+        if not can_customize_bot(uid):
+            bot.answer_callback_query(call.id, "仅最高级买家可修改机器人名字。", show_alert=True)
+            return
+        USER_STATE[uid] = "WAITING_BOT_NAME"
+        bot.send_message(
+            chat_id,
+            "✏️ 请直接发送新的<b>机器人显示名字</b>（最多 64 字）：\n"
+            "例如：<code>小财家记账</code>",
+            parse_mode="HTML",
+        )
+
+    elif call.data == "btn_set_bot_photo":
+        if not can_customize_bot(uid):
+            bot.answer_callback_query(call.id, "仅最高级买家可修改机器人头像。", show_alert=True)
+            return
+        USER_STATE[uid] = "WAITING_BOT_PHOTO"
+        bot.send_message(
+            chat_id,
+            "🖼 请直接发一张图片给我（截图、logo、照片都可以）。\n\n"
+            "我会<b>自动裁成正方形</b>并优化成头像尺寸，再帮你换上。",
             parse_mode="HTML",
         )
 
@@ -740,6 +825,26 @@ def handle_receipt_photo(message):
     if message.chat.type != "private":
         return
     uid = message.from_user.id
+
+    if USER_STATE.get(uid) == "WAITING_BOT_PHOTO":
+        if not can_customize_bot(uid):
+            USER_STATE.pop(uid, None)
+            bot.reply_to(message, "⚠️ 您没有权限修改机器人头像。")
+            return
+        USER_STATE.pop(uid, None)
+        photo_id = message.photo[-1].file_id
+        try:
+            apply_bot_profile_photo(photo_id)
+            bot.reply_to(
+                message,
+                "✅ 头像已更新！\n"
+                "（已自动裁剪为正方形并优化尺寸，请在聊天列表查看机器人资料）",
+            )
+        except Exception as exc:
+            log.exception("set bot photo failed: %s", exc)
+            bot.reply_to(message, f"❌ 头像更新失败：{exc}")
+        return
+
     username = message.from_user.username or "无用户名"
     first_name = message.from_user.first_name or "买家"
     photo_id = message.photo[-1].file_id
@@ -854,6 +959,26 @@ def handle_all_messages(message):
     # --- private chat ---
     if message.chat.type == "private":
         state = USER_STATE.pop(uid, None)
+        if state == "WAITING_BOT_NAME":
+            if not can_customize_bot(uid):
+                bot.reply_to(message, "⚠️ 仅最高级买家可修改机器人名字。")
+                return
+            try:
+                new_name = apply_bot_display_name(text)
+                bot.reply_to(
+                    message,
+                    f"✅ 机器人名字已改为：<b>{_html_esc(new_name)}</b>\n"
+                    f"（聊天列表里显示的名称，@用户名不变）",
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                log.exception("set bot name failed: %s", exc)
+                bot.reply_to(message, f"❌ 改名失败：{exc}")
+            return
+        if state == "WAITING_BOT_PHOTO":
+            USER_STATE[uid] = "WAITING_BOT_PHOTO"
+            bot.reply_to(message, "⚠️ 请发送一张图片作为头像，不要发文字。")
+            return
         if state in ("WAITING_ADD_VIP2", "WAITING_DEL_VIP2"):
             if not text.isdigit():
                 bot.reply_to(message, "❌ UID 必须是纯数字，请重新点击菜单操作。", parse_mode="HTML")
