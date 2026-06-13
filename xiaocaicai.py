@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "8880294546:AAHR2gGDFQseteoLD6_HmeenK7mtRAjihDo")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://caicai-799gg.onrender.com").rstrip("/")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://caicai-888yg.onrender.com").rstrip("/")
 PORT = int(os.environ.get("PORT", "5000"))
 FOUNDER_USERS = [8807178282]
 TRON_ADDRESS = "TVnjLwDrGjYVRTa1ukfoE2mFTmCxtrjoCw"
