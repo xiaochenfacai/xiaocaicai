@@ -22,9 +22,13 @@ from flask import Flask, jsonify, request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN", "8880294546:AAG7yXrfznOAHxvCvvlj8qnFBmG54vqRz-E")
+TOKEN = (
+    os.environ.get("TELEGRAM_TOKEN")
+    or os.environ.get("BOT_TOKEN")
+    or ""
+).strip()
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://caicai-888yg.onrender.com").rstrip("/")
-PORT = int(os.environ.get("PORT", "5000"))
+PORT = int(os.environ.get("PORT", "10000"))
 FOUNDER_USERS = [8807178282]
 TRON_ADDRESS = "TVnjLwDrGjYVRTa1ukfoE2mFTmCxtrjoCw"
 MAX_LEVEL2_VIPS = 5
@@ -35,7 +39,10 @@ SETTING_KEYS = {
 }
 
 if not TOKEN:
-    raise RuntimeError("TELEGRAM_TOKEN environment variable is required")
+    raise RuntimeError(
+        "缺少 TELEGRAM_TOKEN 环境变量。"
+        "请在 Render → Environment 里添加 TELEGRAM_TOKEN=你的BotToken"
+    )
 
 bot = telebot.TeleBot(TOKEN)
 flask_app = Flask(__name__)
@@ -1126,6 +1133,11 @@ def api_bill():
     })
 
 
+@flask_app.route("/health")
+def health():
+    return "ok", 200
+
+
 @flask_app.route("/webhook", methods=["POST"])
 def webhook():
     update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
@@ -1135,4 +1147,20 @@ def webhook():
 
 # ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------
+# ---------------------------------------------------------------------------
+def setup_webhook():
+    try:
+        bot.remove_webhook()
+        ok = bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+        if ok:
+            log.info("Webhook OK: %s/webhook", WEBHOOK_URL)
+        else:
+            log.warning("set_webhook returned False")
+    except Exception as exc:
+        log.error("Webhook setup failed: %s", exc)
+
+
+if __name__ == "__main__":
+    log.info("Starting on 0.0.0.0:%s  WEBHOOK_URL=%s", PORT, WEBHOOK_URL)
+    setup_webhook()
+    flask_app.run(host="0.0.0.0", port=PORT)
