@@ -447,17 +447,23 @@ def _html_esc(text):
 
 
 def _tag_remark(remark):
+    """Telegram 仅支持有限 HTML 标签，不能用 span/style，否则发送失败。"""
     rem = _html_esc(remark).strip()
     if not rem:
         return ""
-    return f'<span style="color:#FBBC04">{rem}</span> '
+    return f"{rem} "
 
 
 def _tag_operator(name, user_id=None):
     safe = _html_esc(name)
     if user_id:
-        return f'<a href="tg://user?id={int(user_id)}">{safe}</a>'
-    return f'<a href="https://t.me/">{safe}</a>'
+        try:
+            uid = int(user_id)
+            if uid > 0:
+                return f'<a href="tg://user?id={uid}">{safe}</a>'
+        except (TypeError, ValueError):
+            pass
+    return safe
 
 
 def _tag_rmb(amount):
@@ -556,7 +562,12 @@ def send_text_bill_report(chat_id, group_id, target_date):
     markup.add(telebot.types.InlineKeyboardButton(
         "📊 查看完整网页账单", url=f"{WEBHOOK_URL}/?group_id={group_id}"
     ))
-    bot.send_message(chat_id, report, parse_mode="HTML", reply_markup=markup)
+    try:
+        bot.send_message(chat_id, report, parse_mode="HTML", reply_markup=markup)
+    except Exception as exc:
+        log.exception("账单 HTML 发送失败，改用纯文本: %s", exc)
+        plain = re.sub(r"<[^>]+>", "", report)
+        bot.send_message(chat_id, plain, reply_markup=markup)
 
 
 # ---------------------------------------------------------------------------
@@ -1044,12 +1055,17 @@ def handle_all_messages(message):
 
     m_inc = re.match(r"^(.*?)([\+\-])(\d+(?:\.\d+)?)(?:/(\d+(?:\.\d+)?))?$", text)
     if m_inc:
-        amount = float(m_inc.group(3))
-        if m_inc.group(2) == "-":
-            amount = -amount
-        rate = float(m_inc.group(4)) if m_inc.group(4) else None
-        add_bill(gid, uid, display_name, m_inc.group(1).strip(), amount, "income", rate)
-        send_text_bill_report(gid, gid, today)
+        try:
+            amount = float(m_inc.group(3))
+            if m_inc.group(2) == "-":
+                amount = -amount
+            rate = float(m_inc.group(4)) if m_inc.group(4) else None
+            add_bill(gid, uid, display_name, m_inc.group(1).strip(), amount, "income", rate)
+            send_text_bill_report(gid, gid, today)
+        except Exception as exc:
+            log.exception("记入款失败: %s", exc)
+            bot.reply_to(message, f"❌ 记账失败: {exc}")
+        return
 
 
 # ---------------------------------------------------------------------------
