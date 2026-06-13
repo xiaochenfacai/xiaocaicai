@@ -1,5 +1,5 @@
 """
-小跟班记账 Telegram Bot + Flask Web 看板
+小财家记账 Telegram Bot + Flask Web 看板
 部署环境变量: TELEGRAM_TOKEN, WEBHOOK_URL, PORT (可选)
 """
 
@@ -29,6 +29,14 @@ TOKEN = (
 ).strip()
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://caicai-888yg.onrender.com").rstrip("/")
 PORT = int(os.environ.get("PORT", "10000"))
+
+# ========== 品牌与价格（复制新机器人时主要改这里）==========
+BOT_NAME = "小财家"
+BOT_BRAND = f"{BOT_NAME}记账"
+PRICE_1_MONTH = 80
+PRICE_2_MONTH = 140
+PRICE_3_MONTH = 220
+
 FOUNDER_USERS = [8807178282]
 TRON_ADDRESS = "TVnjLwDrGjYVRTa1ukfoE2mFTmCxtrjoCw"
 MAX_LEVEL2_VIPS = 5
@@ -593,7 +601,7 @@ def cmd_start(message):
             )
         bot.send_message(
             message.chat.id,
-            f"🤖 <b>您好！欢迎使用小跟班记账分布式管理中心</b>\n\n"
+            f"🤖 <b>您好！欢迎使用{BOT_BRAND}分布式管理中心</b>\n\n"
             f"👤 <b>当前身份：</b> <code>{lvl_desc}</code>\n"
             f"📌 请通过下方菜单按纽执行管理操作：",
             parse_mode="HTML",
@@ -602,7 +610,7 @@ def cmd_start(message):
     else:
         bot.send_message(
             message.chat.id,
-            "🤖 <b>小跟班智能分布式记账系统已激活</b>\n\n"
+            f"🤖 <b>{BOT_BRAND}智能分布式记账系统已激活</b>\n\n"
             "👉 <b>群内核心记账命令：</b>\n"
             "• 发送 <code>上课</code> / <code>下课</code> 开启或封存账单\n"
             "• 发送 <code>+1000</code> 或 <code>+1000/7.3</code> 记入款\n"
@@ -641,7 +649,8 @@ def handle_private_buttons(call):
     elif call.data == "btn_manual_guide":
         bot.send_message(
             chat_id,
-            "📖 <b>【小跟班记账】全功能业务操作指南</b>\n\n"
+            f"📖 <b>【{BOT_BRAND}】全功能业务操作指南</b>\n\n"
+            f"🤖 欢迎使用 <b>{BOT_NAME}</b> 机器人，以下为常用指令：\n\n"
             "👑 <b>权限架构：</b>\n"
             "1. <b>最高级买家</b>：私聊 6 键菜单，可指派二级权限人。\n"
             "2. <b>权限人(VIP2)</b>：可进群指派群操作人。\n"
@@ -660,8 +669,9 @@ def handle_private_buttons(call):
         bot.send_message(
             chat_id,
             f"💰 <b>USDT 授权价格套餐：</b>\n"
-            f"• 1 个月高级买家：<b>80</b> USDT\n"
-            f"• 3 个月高级买家：<b>230</b> USDT\n\n"
+            f"• 1 个月高级买家：<b>{PRICE_1_MONTH}</b> USDT\n"
+            f"• 2 个月高级买家：<b>{PRICE_2_MONTH}</b> USDT\n"
+            f"• 3 个月高级买家：<b>{PRICE_3_MONTH}</b> USDT\n\n"
             f"💎 <b>官方波场(TRC20)收款地址：</b>\n<code>{TRON_ADDRESS}</code>\n\n"
             f"⚠️ 转账成功后，请将【成功截图凭证】私发给机器人，创始人审核后开通。",
             parse_mode="HTML",
@@ -716,7 +726,7 @@ def handle_my_chat_member(update: telebot.types.ChatMemberUpdated):
             bot.send_message(
                 update.chat.id,
                 "<b>感谢您把我拉进贵群！</b>\n\n"
-                "我是小财财机器人🤖\n"
+                f"我是{BOT_NAME}机器人🤖\n"
                 "请发送 <code>上课</code> 唤醒我，"
                 "并设置费率（如 <code>设置费率 5</code>），然后即可开始记账。",
                 parse_mode="HTML",
@@ -736,10 +746,13 @@ def handle_receipt_photo(message):
 
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(
-        telebot.types.InlineKeyboardButton("✅ 开通1个月", callback_data=f"auth_1_{uid}"),
-        telebot.types.InlineKeyboardButton("✅ 开通3个月", callback_data=f"auth_3_{uid}"),
+        telebot.types.InlineKeyboardButton(f"✅ 开通1个月({PRICE_1_MONTH}U)", callback_data=f"auth_1_{uid}"),
+        telebot.types.InlineKeyboardButton(f"✅ 开通2个月({PRICE_2_MONTH}U)", callback_data=f"auth_2_{uid}"),
     )
-    markup.add(telebot.types.InlineKeyboardButton("❌ 拒绝开通", callback_data=f"auth_reject_{uid}"))
+    markup.add(
+        telebot.types.InlineKeyboardButton(f"✅ 开通3个月({PRICE_3_MONTH}U)", callback_data=f"auth_3_{uid}"),
+        telebot.types.InlineKeyboardButton("❌ 拒绝开通", callback_data=f"auth_reject_{uid}"),
+    )
 
     for founder in FOUNDER_USERS:
         try:
