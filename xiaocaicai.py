@@ -351,7 +351,8 @@ def add_bill(group_id, user_id, username, remark, amount, bill_type, exchange_ra
     if exchange_rate is None:
         exchange_rate = get_setting(group_id, "exchange_rate") or 7.2
     usdt_amount = amount / exchange_rate if bill_type == "income" else amount
-    _, _, full_time = get_current_time()
+    tz = get_setting(group_id, "timezone") or "Asia/Shanghai"
+    _, _, full_time = get_current_time(tz)
     date_str = full_time[:10]
     conn = get_db()
     c = conn.cursor()
@@ -372,32 +373,73 @@ def add_bill(group_id, user_id, username, remark, amount, bill_type, exchange_ra
 def get_class_bills_by_date(group_id, target_date):
     conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp "
-        "FROM bills WHERE group_id = ? AND date_str = ? AND bill_type = 'income' ORDER BY id ASC",
-        (group_id, target_date),
-    )
-    income = c.fetchall()
-    c.execute(
-        "SELECT remark, username, usdt_amount, exchange_rate, timestamp "
-        "FROM bills WHERE group_id = ? AND date_str = ? AND bill_type = 'expense' ORDER BY id ASC",
-        (group_id, target_date),
-    )
-    expense = c.fetchall()
-    c.execute(
-        "SELECT SUM(amount), SUM(usdt_amount) FROM bills "
-        "WHERE group_id = ? AND date_str = ? AND bill_type = 'income'",
-        (group_id, target_date),
-    )
-    total_income = c.fetchone()
-    c.execute(
-        "SELECT SUM(usdt_amount) FROM bills "
-        "WHERE group_id = ? AND date_str = ? AND bill_type = 'expense'",
-        (group_id, target_date),
-    )
-    total_expense = c.fetchone()
+    if target_date == "all":
+        c.execute(
+            "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp, date_str "
+            "FROM bills WHERE group_id = ? AND bill_type = 'income' ORDER BY id ASC",
+            (group_id,),
+        )
+        income = c.fetchall()
+        c.execute(
+            "SELECT remark, username, usdt_amount, exchange_rate, timestamp, date_str "
+            "FROM bills WHERE group_id = ? AND bill_type = 'expense' ORDER BY id ASC",
+            (group_id,),
+        )
+        expense = c.fetchall()
+        c.execute(
+            "SELECT SUM(amount), SUM(usdt_amount) FROM bills "
+            "WHERE group_id = ? AND bill_type = 'income'",
+            (group_id,),
+        )
+        total_income = c.fetchone()
+        c.execute(
+            "SELECT SUM(usdt_amount) FROM bills "
+            "WHERE group_id = ? AND bill_type = 'expense'",
+            (group_id,),
+        )
+        total_expense = c.fetchone()
+    else:
+        c.execute(
+            "SELECT remark, username, amount, usdt_amount, exchange_rate, timestamp, date_str "
+            "FROM bills WHERE group_id = ? AND date_str = ? AND bill_type = 'income' ORDER BY id ASC",
+            (group_id, target_date),
+        )
+        income = c.fetchall()
+        c.execute(
+            "SELECT remark, username, usdt_amount, exchange_rate, timestamp, date_str "
+            "FROM bills WHERE group_id = ? AND date_str = ? AND bill_type = 'expense' ORDER BY id ASC",
+            (group_id, target_date),
+        )
+        expense = c.fetchall()
+        c.execute(
+            "SELECT SUM(amount), SUM(usdt_amount) FROM bills "
+            "WHERE group_id = ? AND date_str = ? AND bill_type = 'income'",
+            (group_id, target_date),
+        )
+        total_income = c.fetchone()
+        c.execute(
+            "SELECT SUM(usdt_amount) FROM bills "
+            "WHERE group_id = ? AND date_str = ? AND bill_type = 'expense'",
+            (group_id, target_date),
+        )
+        total_expense = c.fetchone()
     conn.close()
     return income, expense, total_income, total_expense
+
+
+def get_bill_dates(group_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "SELECT date_str, "
+        "SUM(CASE WHEN bill_type='income' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN bill_type='expense' THEN 1 ELSE 0 END) "
+        "FROM bills WHERE group_id = ? GROUP BY date_str ORDER BY date_str DESC",
+        (group_id,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [{"date": r[0], "income": r[1], "expense": r[2]} for r in rows]
 
 
 def _format_income_line(remark, operator, amount, usdt, rate, timestamp):
@@ -994,7 +1036,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 body{background:#f4f6f9;color:#333;padding:12px;line-height:1.4}
 .container{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,.05)}
 .header{text-align:center;margin-bottom:20px;border-bottom:2px solid #edf2f7;padding-bottom:15px}
-.date-picker{margin:10px 0;background:#f8fafc;padding:8px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:8px;border:1px dashed #cbd5e1}
+.date-picker{margin:10px 0;background:#f8fafc;padding:8px;border-radius:6px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;border:1px dashed #cbd5e1}
+.date-tags{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:6px}
+.date-tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;text-decoration:none;color:#334155}
+.date-tag.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+.nav-btn{padding:6px 12px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:13px;color:#334155}
+.nav-btn:disabled{opacity:.45;cursor:not-allowed}
 .summary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:25px;border-top:2px dashed #cbd5e1;padding-top:20px}
 .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}
 .card .title{font-size:12px;color:#64748b}
@@ -1006,6 +1053,7 @@ th,td{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left}
 th{background:#f1f5f9;color:#475569}
 .badge{display:inline-block;padding:2px 6px;font-size:11px;border-radius:4px;font-weight:bold;background:#e2e8f0}
 .bg-inc{background:#dcfce7;color:#15803d}.bg-exp{background:#fee2e2;color:#b91c1c}
+.hint{font-size:12px;color:#64748b;margin-top:6px}
 </style>
 </head>
 <body>
@@ -1013,15 +1061,20 @@ th{background:#f1f5f9;color:#475569}
 <div class="header">
 <h2>📊 分布式对账看板</h2>
 <p id="group-text" style="font-size:12px;color:#64748b;margin-top:4px">加载中...</p>
+<p id="summary-text" class="hint"></p>
 <div class="date-picker">
+<button id="btn-prev" type="button" class="nav-btn">◀ 跳前</button>
 <label for="date-select">📅 账单日期：</label>
-<input type="date" id="date-select" onchange="dateChanged(this.value)">
+<input type="date" id="date-select">
+<button id="btn-next" type="button" class="nav-btn">跳后 ▶</button>
+<button id="btn-all" type="button" class="nav-btn">全部历史</button>
 </div>
+<div id="date-tags" class="date-tags"></div>
 </div>
-<h3>📥 进单明细</h3>
-<table><thead><tr><th>时间</th><th>备注</th><th>RMB</th><th>U</th><th>操作人</th></tr></thead><tbody id="income-list"></tbody></table>
-<h3 class="exp-title">📤 下发明细</h3>
-<table><thead><tr><th>时间</th><th>备注</th><th>USDT</th><th>操作人</th></tr></thead><tbody id="expense-list"></tbody></table>
+<h3 id="income-title">📥 入款（0笔）</h3>
+<table><thead><tr><th>日期</th><th>时间</th><th>备注</th><th>RMB</th><th>U</th><th>操作人</th></tr></thead><tbody id="income-list"></tbody></table>
+<h3 class="exp-title" id="expense-title">📤 下发（0笔）</h3>
+<table><thead><tr><th>日期</th><th>时间</th><th>备注</th><th>USDT</th><th>操作人</th></tr></thead><tbody id="expense-list"></tbody></table>
 <h3 class="cate-title">🗂️ 备注分类</h3>
 <table><thead><tr><th>备注</th><th>RMB</th><th>USDT</th><th>笔数</th></tr></thead><tbody id="cate-list"></tbody></table>
 <div class="summary-grid">
@@ -1035,27 +1088,71 @@ th{background:#f1f5f9;color:#475569}
 <script>
 const params=new URLSearchParams(location.search);
 const groupId=params.get('group_id')||'0';
+let currentDate=params.get('date')||'';
 document.getElementById('group-text').textContent='群组 ID: '+groupId;
 const ds=document.getElementById('date-select');
-ds.value=params.get('date')||new Date().toISOString().slice(0,10);
-function dateChanged(d){location.href=`?group_id=${groupId}&date=${d}`}
+const btnPrev=document.getElementById('btn-prev');
+const btnNext=document.getElementById('btn-next');
+function localToday(){
+const n=new Date();
+return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+}
+function shiftDate(dateStr,delta){
+const p=dateStr.split('-').map(Number);
+const dt=new Date(p[0],p[1]-1,p[2]);
+dt.setDate(dt.getDate()+delta);
+return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+}
+function goDate(d){
+location.href='?group_id='+groupId+'&date='+encodeURIComponent(d);
+}
+ds.onchange=()=>goDate(ds.value);
+document.getElementById('btn-all').onclick=()=>goDate('all');
+btnPrev.onclick=()=>{
+const base=(currentDate&&currentDate!=='all')?currentDate:(window.__serverToday||localToday());
+goDate(shiftDate(base,-1));
+};
+btnNext.onclick=()=>{
+const base=(currentDate&&currentDate!=='all')?currentDate:(window.__serverToday||localToday());
+const next=shiftDate(base,1);
+const maxDay=window.__serverToday||localToday();
+if(next>maxDay)return;
+goDate(next);
+};
 async function load(){
-const d=ds.value;
-const r=await fetch(`/api/bill?group_id=${groupId}&date=${d}`);
+const d=currentDate||localToday();
+if(d!=='all'){ds.value=d;}
+const r=await fetch('/api/bill?group_id='+groupId+'&date='+encodeURIComponent(d));
 const data=await r.json();
+if(data.server_today && !params.get('date')){goDate(data.server_today);return;}
+window.__serverToday=data.server_today||localToday();
+const viewDay=(d==='all')?window.__serverToday:d;
+btnPrev.disabled=false;
+btnNext.disabled=(viewDay>=window.__serverToday);
+document.getElementById('summary-text').textContent=
+(d==='all'?'查看全部历史':('当前日期 '+d+'（北京时间）'))+
+' · 入款 '+data.income_count+' 笔 · 下发 '+data.expense_count+' 笔';
+document.getElementById('income-title').textContent='📥 入款（'+data.income_count+'笔）';
+document.getElementById('expense-title').textContent='📤 下发（'+data.expense_count+'笔）';
 ['rate','total_rmb'].forEach(k=>document.getElementById(k).textContent=data[k]);
 document.getElementById('total_usdt').textContent=data.total_usdt+' U';
 document.getElementById('expense_usdt').textContent=data.expense_usdt+' U';
 document.getElementById('remaining_usdt').textContent=data.remaining_usdt+' U';
+const tags=document.getElementById('date-tags');
+tags.innerHTML=(data.available_dates||[]).map(x=>{
+const active=(d===x.date)?' active':'';
+return '<a class="date-tag'+active+'" href="?group_id='+groupId+'&date='+x.date+'">'
++x.date+' ('+x.income+'/'+x.expense+')</a>';
+}).join('');
 document.getElementById('cate-list').innerHTML=(data.category_summary||[]).length
-?data.category_summary.map(c=>`<tr><td><span class="badge bg-inc">${c.remark}</span></td><td>${c.total_rmb}</td><td>${c.total_usdt} U</td><td>${c.count}</td></tr>`).join('')
+?data.category_summary.map(c=>'<tr><td><span class="badge bg-inc">'+c.remark+'</span></td><td>'+c.total_rmb+'</td><td>'+c.total_usdt+' U</td><td>'+c.count+'</td></tr>').join('')
 :'<tr><td colspan="4" style="text-align:center;color:#94a3b8">暂无</td></tr>';
 document.getElementById('income-list').innerHTML=(data.income_bills||[]).length
-?data.income_bills.map(b=>`<tr><td>${b.time}</td><td>${b.remark}</td><td>+${b.amount}</td><td>${b.usdt} U</td><td>${b.username}</td></tr>`).join('')
-:'<tr><td colspan="5" style="text-align:center;color:#94a3b8">暂无</td></tr>';
+?data.income_bills.map(b=>'<tr><td>'+b.date+'</td><td>'+b.time+'</td><td>'+b.remark+'</td><td>+'+b.amount+'</td><td>'+b.usdt+' U</td><td>'+b.username+'</td></tr>').join('')
+:'<tr><td colspan="6" style="text-align:center;color:#94a3b8">暂无入款</td></tr>';
 document.getElementById('expense-list').innerHTML=(data.expense_bills||[]).length
-?data.expense_bills.map(e=>`<tr><td>${e.time}</td><td>${e.remark}</td><td>-${e.usdt} U</td><td>${e.username}</td></tr>`).join('')
-:'<tr><td colspan="4" style="text-align:center;color:#94a3b8">暂无</td></tr>';
+?data.expense_bills.map(e=>'<tr><td>'+e.date+'</td><td>'+e.time+'</td><td>'+e.remark+'</td><td>-'+e.usdt+' U</td><td>'+e.username+'</td></tr>').join('')
+:'<tr><td colspan="5" style="text-align:center;color:#94a3b8">暂无下发</td></tr>';
 }
 load();
 </script>
@@ -1077,7 +1174,8 @@ def api_bill():
 
     tz = get_setting(group_id, "timezone") or "Asia/Shanghai"
     now, _, _ = get_current_time(tz)
-    target_date = request.args.get("date", now.strftime("%Y-%m-%d"))
+    server_today = now.strftime("%Y-%m-%d")
+    target_date = request.args.get("date") or server_today
 
     income, expense, total_income, total_expense = get_class_bills_by_date(group_id, target_date)
     rate = get_setting(group_id, "exchange_rate") or 7.2
@@ -1092,6 +1190,7 @@ def api_bill():
             "amount": f"{r[2]:.0f}",
             "usdt": f"{r[3]:.2f}",
             "time": r[5][11:19] if r[5] else "",
+            "date": r[6] if len(r) > 6 else target_date,
         }
         for r in income
     ]
@@ -1101,13 +1200,14 @@ def api_bill():
             "username": r[1] or "未知",
             "usdt": f"{r[2]:.2f}",
             "time": r[4][11:19] if r[4] else "",
+            "date": r[5] if len(r) > 5 else target_date,
         }
         for r in expense
     ]
 
     summary = {}
     for row in income:
-        rem = (row[0] or "空备注").strip()
+        rem = (row[0] or "空备注").strip() or "空备注"
         summary.setdefault(rem, {"total_rmb": 0.0, "total_usdt": 0.0, "count": 0})
         summary[rem]["total_rmb"] += row[2] or 0
         summary[rem]["total_usdt"] += row[3] or 0
@@ -1132,6 +1232,11 @@ def api_bill():
         "income_bills": income_bills,
         "expense_bills": expense_bills,
         "category_summary": category_summary,
+        "income_count": len(income),
+        "expense_count": len(expense),
+        "server_today": server_today,
+        "query_date": target_date,
+        "available_dates": get_bill_dates(group_id),
     })
 
 
