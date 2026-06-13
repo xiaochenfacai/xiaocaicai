@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN", "8880294546:AAE5P9nvPC_Mk0WdCQDhV3_ZxREbJflUyow")
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "8880294546:AAHR2gGDFQseteoLD6_HmeenK7mtRAjihDo")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://caicai-799gg.onrender.com").rstrip("/")
 PORT = int(os.environ.get("PORT", "5000"))
 FOUNDER_USERS = [8807178282]
@@ -391,7 +391,25 @@ def get_class_bills_by_date(group_id, target_date):
     return income, expense, total_income, total_expense
 
 
-def send_text_bill_report(chat_id, group_id, target_date):
+def _format_income_line(remark, operator, amount, usdt, rate, timestamp):
+    time_s = timestamp[11:16]
+    body = f"{amount:.0f}/{rate:.2f}={usdt:.2f}U"
+    rem = (remark or "").strip()
+    if rem:
+        return f"{rem} {time_s} {body} {operator}"
+    return f"{time_s} {body} {operator}"
+
+
+def _format_expense_line(remark, operator, usdt, timestamp):
+    time_s = timestamp[11:16]
+    body = f"下发 {usdt:.2f}U"
+    rem = (remark or "").strip()
+    if rem:
+        return f"{rem} {time_s} {body} {operator}"
+    return f"{time_s} {body} {operator}"
+
+
+def build_bill_report_text(group_id, target_date, show_all_categories=False):
     rate = get_setting(group_id, "exchange_rate") or 7.2
     fee_rate = get_setting(group_id, "fee_rate") or 0.0
     income, expense, total_income, total_expense = get_class_bills_by_date(group_id, target_date)
@@ -403,21 +421,36 @@ def send_text_bill_report(chat_id, group_id, target_date):
 
     summary = {}
     for row in income:
-        rem = row[0] or "无备注"
+        rem = (row[0] or "").strip() or "无备注"
         summary.setdefault(rem, {"rmb": 0.0, "usdt": 0.0})
         summary[rem]["rmb"] += row[2]
         summary[rem]["usdt"] += row[3]
 
-    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n📥 <b>入款 ({len(expense)}笔):</b>\n"
-    for row in income[-5:]:
-        report += f"{row[1]} {row[5][11:16]} {row[2]:.0f} / {row[4]:.2f} = {row[3]:.2f}U\n"
+    report = f"📊 <b>账单汇总 ({target_date})</b>\n\n"
+    report += f"📥 <b>入款（{len(income)}笔）</b>\n"
+    if income:
+        for row in income[-5:]:
+            report += _format_income_line(row[0], row[1], row[2], row[3], row[4], row[5]) + "\n"
+    else:
+        report += "  暂无入款\n"
 
-    report += "\n📥 <b>入款备注分类:</b>\n"
-    for key, val in summary.items():
-        report += f"{key} 👉 {val['rmb']:.0f} | {val['usdt']:.2f}U\n"
+    report += "\n📥 <b>入款备注分类</b>\n"
+    category_items = list(summary.items())
+    visible_categories = category_items if show_all_categories else category_items[:3]
+    if visible_categories:
+        for key, val in visible_categories:
+            report += f"{key} 👉 {val['rmb']:.0f} | {val['usdt']:.2f}U\n"
+    else:
+        report += "  暂无分类\n"
+
+    report += f"\n📤 <b>下发（{len(expense)}笔）</b>\n"
+    if expense:
+        for row in expense[-5:]:
+            report += _format_expense_line(row[0], row[1], row[2], row[4]) + "\n"
+    else:
+        report += "  暂无下发\n"
 
     report += (
-        f"\n📤 <b>下发 ({len(expense)}笔):</b>\n"
         f"\n💰 <b>总入款:</b> {total_rmb:.0f}\n"
         f"📉 <b>费率:</b> {fee_rate * 100:.0f}%\n"
         f"💱 <b>汇率:</b> {rate:.2f}\n\n"
@@ -426,7 +459,19 @@ def send_text_bill_report(chat_id, group_id, target_date):
         f"<code>[核算编号: {random.randint(1000, 9999)}]</code>"
     )
 
+    has_more_categories = len(category_items) > 3 and not show_all_categories
+    return report, has_more_categories
+
+
+def send_text_bill_report(chat_id, group_id, target_date):
+    report, has_more = build_bill_report_text(group_id, target_date)
     markup = telebot.types.InlineKeyboardMarkup()
+    if has_more:
+        date_key = target_date.replace("-", "")
+        markup.add(telebot.types.InlineKeyboardButton(
+            "show more",
+            callback_data=f"bill_cate_{group_id}_{date_key}",
+        ))
     markup.add(telebot.types.InlineKeyboardButton(
         "📊 查看完整网页账单", url=f"{WEBHOOK_URL}/?group_id={group_id}"
     ))
@@ -650,6 +695,39 @@ def handle_auth_buttons(call):
             call.message.message_id,
         )
     bot.answer_callback_query(call.id, "操作成功！")
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("bill_cate_"))
+def handle_bill_category_more(call):
+    rest = call.data[len("bill_cate_"):]
+    sep = rest.rfind("_")
+    if sep < 0:
+        bot.answer_callback_query(call.id)
+        return
+    try:
+        group_id = int(rest[:sep])
+        date_key = rest[sep + 1:]
+        target_date = f"{date_key[:4]}-{date_key[4:6]}-{date_key[6:8]}"
+    except (ValueError, IndexError):
+        bot.answer_callback_query(call.id, "数据解析失败", show_alert=True)
+        return
+
+    report, _ = build_bill_report_text(group_id, target_date, show_all_categories=True)
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton(
+        "📊 查看完整网页账单", url=f"{WEBHOOK_URL}/?group_id={group_id}"
+    ))
+    try:
+        bot.edit_message_text(
+            report,
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+    except Exception as exc:
+        log.exception("expand bill categories: %s", exc)
+    bot.answer_callback_query(call.id)
 
 
 # ---------------------------------------------------------------------------
@@ -1057,9 +1135,4 @@ def webhook():
 
 # ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-    log.info("Webhook set to %s/webhook, listening on port %s", WEBHOOK_URL, PORT)
-    flask_app.run(host="0.0.0.0", port=PORT)
+# ---------------------------------------------
